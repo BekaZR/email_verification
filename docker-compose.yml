@@ -1,0 +1,78 @@
+version: '3.7'
+
+services:
+
+  db:
+    container_name: db_secret
+    image: postgres:12.0-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    networks:
+      - my-network
+    env_file:
+      - ./.env
+
+  web:
+    container_name: web_secret
+    restart: unless-stopped
+    build:
+      context: .
+    volumes:
+        - static/:/static
+        - media/:/media
+        - ./:/app
+    entrypoint: ./wsgi-entrypoint.sh
+    ports:
+      - "8000:8000"
+    networks:
+      - my-network
+    depends_on:
+      - db
+    command: >
+        sh -c "python3 manage.py makemigrations --noinput &&
+              python3 manage.py migrate --noinput"
+
+  nginx:
+    container_name: nginx_secret
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    volumes:
+      - ./static/:/static
+      - ./media/:/media
+    networks:
+      - my-network
+    depends_on:
+      - db
+      - web
+
+  redis:
+    container_name: send_mail_redis
+    image: redis
+    networks:
+      - my-network
+
+
+  celery:
+    build:
+      context: .
+    container_name: celery-worker
+    restart: always
+    command: sh -c "celery -A core worker -l INFO"
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis
+      - web
+    networks:
+      - my-network
+
+volumes:
+  postgres_data:
+  media:
+  static:
+
+networks:
+  my-network:
